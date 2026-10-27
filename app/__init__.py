@@ -1,0 +1,1 @@
+"""Trade Agent application package."""

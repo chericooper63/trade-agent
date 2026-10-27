@@ -1,0 +1,34 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    labels:
+      base44.project: "Trade Agent"
+      base44.kind: "api"
+      base44.port: "3000"
+      base44.docs: "/docs"
+    ports:
+      - "3000:8000"
+    volumes:
+      - ./:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENVIRONMENT=development
+      - PAPER_TRADING=${PAPER_TRADING:-true}
+      - BASE44_PREVIEW_MODE
+    command:
+      - sh
+      - -ec
+      - exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app
+    restart: on-failure
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3).status==200 else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
