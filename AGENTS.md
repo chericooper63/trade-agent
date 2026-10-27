@@ -28,8 +28,21 @@ stdlib `http.server` in `trade_agent/server.py` — no JS build step.
 - `GET /api/dashboard` → status, mode, `last_run` (in-memory, falling back to the latest
   persisted run), `run_history` (last 20 summaries), `connection` safety flags, `agent_workspace`.
   The `run_history` field and the persisted-run fallback were added for the dashboard.
+- `GET /api/health` → readiness probe (200 `ready` / 503 `degraded`) with uptime and the
+  persisted-run store probe. This is the endpoint the Compose healthcheck and
+  `.base44/environment.json` use; keep the two in sync.
 - `POST /api/run` → runs one paper cycle (400 if the kill switch is on).
 - `POST /api/settings` → `{mode, require_manual_approval, kill_switch}`; live mode always raises.
+
+## Server startup
+
+`trade_agent/startup.py` holds the timestamped startup logger and `retry_call` (bounded retries
+with a total time budget). `python -m trade_agent.server` accepts `--log-level`,
+`--startup-timeout`, `--bind-attempts`, `--storage-attempts`, `--request-timeout`, each with a
+`TRADE_AGENT_*` environment default. Startup steps are logged individually (state store, socket
+bind, ready/uptime); SIGINT and SIGTERM shut the server down cleanly. There is no database, so
+the "database" retry applies to the JSON run store (`RunStorage`); its `probe()` backs
+`/api/health`.
 
 ## Checks
 

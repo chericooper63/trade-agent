@@ -1,6 +1,10 @@
+import json
+import logging
 import os
 import tempfile
+import threading
 import unittest
+import urllib.request
 from unittest.mock import patch
 
 import numpy as np
@@ -41,6 +45,7 @@ from trade_agent.risk import RiskManager
 from trade_agent.scanner import MarketScanner
 from trade_agent.security import ProductionReadinessGate, SecurityManager
 from trade_agent.server import DashboardServer
+from trade_agent.startup import StartupError, retry_call
 from trade_agent.storage import RunStorage
 from trade_agent.strategy import ResearchStrategyEngine, TechnicalSignalGenerator
 from trade_agent.team import AgentMessage, AgentProfile, AgentTeam, LearningJournal, build_default_team
@@ -930,6 +935,47 @@ class TradeAgentTests(unittest.TestCase):
         self.assertEqual(server.api_route(), "/api/dashboard")
         self.assertTrue(server.static_index_exists())
         self.assertTrue(server.static_root.endswith("frontend"))
+
+    def test_dashboard_health_endpoint_reports_state_store_readiness(self):
+        server = DashboardServer()
+        self.assertEqual(server.health_route(), "/api/health")
+        httpd = server.create_server(host="127.0.0.1", port=0, logger=logging.getLogger("trade_agent.tests"))
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = f"http://127.0.0.1:{httpd.server_address[1]}/api/health"
+            with urllib.request.urlopen(url, timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                self.assertEqual(response.status, 200)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            thread.join(timeout=5)
+        self.assertEqual(payload["status"], "ready")
+        self.assertTrue(payload["storage"]["ready"])
+        self.assertIn("uptime_seconds", payload)
+
+    def test_startup_retry_recovers_transient_errors_and_then_fails_cleanly(self):
+        logger = logging.getLogger("trade_agent.tests.startup")
+        attempts = {"count": 0}
+
+        def flaky():
+            attempts["count"] += 1
+            if attempts["count"] < 3:
+                raise OSError("state store not ready")
+            return "ready"
+
+        self.assertEqual(
+            retry_call(flaky, label="state store", logger=logger, attempts=5, delay=0, timeout=5),
+            "ready",
+        )
+        self.assertEqual(attempts["count"], 3)
+
+        def broken():
+            raise OSError("state store locked")
+
+        with self.assertRaises(StartupError):
+            retry_call(broken, label="state store", logger=logger, attempts=2, delay=0, timeout=5)
 
     def test_public_market_data_provider_handles_missing_symbol_column(self):
         market_df = MarketDataProvider(symbol="MSFT", periods=12).get_market_data().drop(columns=["symbol"])

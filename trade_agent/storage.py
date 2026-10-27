@@ -61,6 +61,24 @@ class RunStorage:
         with self._lock:
             return self._read_list(self.learning_path)
 
+    def probe(self) -> dict[str, Any]:
+        """Cheap readiness check for the persisted run store (used by /api/health)."""
+        self.directory.mkdir(parents=True, exist_ok=True)
+        writable = os.access(self.directory, os.W_OK)
+        error: str | None = None
+        try:
+            entries = len(self._read_list(self.history_path))
+        except ValueError as exc:
+            entries = 0
+            error = str(exc)
+        return {
+            "ready": writable and error is None,
+            "directory": str(self.directory),
+            "writable": writable,
+            "history_entries": entries,
+            "error": error,
+        }
+
     @staticmethod
     def _read_list(path: Path) -> list[dict[str, Any]]:
         if not path.exists():
