@@ -1,34 +1,38 @@
 services:
-  api:
+  dashboard:
     build:
       context: .
       dockerfile: Dockerfile
     labels:
       base44.project: "Trade Agent"
-      base44.kind: "api"
+      base44.kind: "web"
       base44.port: "3000"
-      base44.docs: "/docs"
     ports:
       - "3000:8000"
     volumes:
+      # Source is live: static frontend files are read per request and
+      # watchfiles restarts the server when Python modules change.
       - ./:/app
+      # Persisted run history / audit log survive container rebuilds.
+      - trade_agent_state:/root/.local/state/trade-agent
     environment:
       - PYTHONUNBUFFERED=1
-      - ENVIRONMENT=development
-      - PAPER_TRADING=${PAPER_TRADING:-true}
       - BASE44_PREVIEW_MODE
     command:
       - sh
       - -ec
-      - exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app
+      - exec watchfiles --filter python 'python -m trade_agent.server --host 0.0.0.0 --port 8000' /app/trade_agent
     restart: on-failure
     healthcheck:
       test:
         - CMD
         - python
         - -c
-        - import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3).status==200 else 1)
+        - import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/dashboard',timeout=3).status==200 else 1)
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 20s
+
+volumes:
+  trade_agent_state:

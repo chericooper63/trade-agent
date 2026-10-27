@@ -1,6 +1,6 @@
 {
   "previewPort": 3000,
-  "healthPath": "/health",
+  "healthPath": "/api/dashboard",
   "startCommand": "docker compose -f docker-compose.base44.yml up -d",
   "secrets": []
 }

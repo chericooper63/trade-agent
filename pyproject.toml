@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trade-agent"
+version = "0.1.0"
+description = "Multi-layer agentic trade agent"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.26",
+]
+
+[project.scripts]
+trade-agent = "trade_agent.cli:main"
+
+[tool.setuptools]
+packages = ["trade_agent"]

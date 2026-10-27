@@ -1,0 +1,9 @@
+{
+    "python.analysis.autoImportCompletions": true,
+    "chat.tools.terminal.autoApprove": {
+        "/^/workspaces/trade-agent/\\.venv/bin/python -m unittest discover -s tests -v$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
