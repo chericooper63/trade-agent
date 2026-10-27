@@ -13,7 +13,8 @@ stdlib `http.server` in `trade_agent/server.py` — no JS build step.
 - `./` is bind-mounted at `/app`. Frontend files (`index.html`, `app.js`, `styles.css`) are read
   from disk per request, so UI edits need only a browser refresh. Python edits are picked up by
   `watchfiles`, which restarts `python -m trade_agent.server`. `requirements.txt` changes need
-  `up -d --build`.
+  `up -d --build`. The server traps the reloader's SIGINT so reloads exit quietly instead of
+  logging a `KeyboardInterrupt` traceback.
 - Run state (`history.json`, `latest_run.json`, audit log) is written to
   `~/.local/state/trade-agent/`, mapped to the named volume `trade_agent_state` so cycles
   survive container recreation. Reset it with

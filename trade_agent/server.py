@@ -107,7 +107,14 @@ class DashboardServer:
         server.dashboard_api = self.api
         server.static_root = self.static_root
         server._serve_file = self._serve_file
-        server.serve_forever()
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            # watchfiles stops the server with SIGINT on every code change;
+            # exit quietly instead of printing a traceback into the logs.
+            pass
+        finally:
+            server.server_close()
 
 
 def main(argv: list[str] | None = None) -> None:
