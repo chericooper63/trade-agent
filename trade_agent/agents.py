@@ -175,7 +175,7 @@ class LearningAgent:
 
         entries = []
         for symbol in symbols:
-            entries.append(self.journal.record(
+            entry = self.journal.record(
                 "execution_learning_agent",
                 symbol,
                 {
@@ -192,7 +192,10 @@ class LearningAgent:
                     "review_status": review.get("review_status"),
                 },
                 "Paper execution outcome recorded for review; this evidence does not authorize live execution.",
-            ))
+            )
+            entries.append(entry)
+            if self.journal.storage is not None:
+                self.journal.storage.store({"learning_entry": entry})
 
         return {
             **review,

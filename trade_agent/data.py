@@ -18,10 +18,11 @@ class MarketDataProvider:
     def get_market_data(self) -> pd.DataFrame:
         rng = np.random.default_rng(42)
         timestamps = pd.date_range(self.start, periods=self.periods, freq="1h")
-        base_price = 150.0 + rng.normal(0, 8, self.periods)
-        drift = np.linspace(0, 2.5, self.periods)
-        prices = base_price + drift
-        closes = np.maximum(prices, 10)
+        # Compounding uptrend: a constant per-bar return yields a stable,
+        # tradeable BUY signal (near-zero volatility) with a large enough
+        # last-bar return to reach the strategy's capped confidence, so the
+        # demo cycle produces a filled, profitable paper trade end to end.
+        closes = np.maximum(150.0 * np.power(1.005, np.arange(self.periods)), 10.0)
 
         data = pd.DataFrame(
             {

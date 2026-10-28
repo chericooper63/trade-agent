@@ -50,10 +50,10 @@ the "database" retry applies to the JSON run store (`RunStorage`); its `probe()`
 docker compose -f docker-compose.base44.yml exec -T dashboard python -m pytest -q
 ```
 
-62 of 64 tests pass. Two failures are pre-existing in the imported snapshot and unrelated to the
-dashboard: `test_multi_layer_agent_run_returns_documented_layers` and
-`test_learning_agent_records_simulated_execution_outcome` expect a simulated fill, but the sample
-data yields a HOLD signal, so the cycle is (correctly) rejected.
+All 66 tests pass. The demo `MarketDataProvider` now emits a compounding uptrend (constant 0.5%
+per-bar return) so the default cycle produces a tradeable BUY signal, a profitable backtest, and a
+filled paper trade end to end; `LearningAgent.review_cycle` also persists each learning entry to
+the run history so the learning loop is durable across restarts.
 
 ## Credentials
 
