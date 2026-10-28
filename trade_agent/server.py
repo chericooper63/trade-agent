@@ -15,6 +15,7 @@ CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
+    ".svg": "image/svg+xml",
 }
 
 
@@ -115,6 +116,10 @@ class DashboardServer:
 
                 if request_path in {"/", "/frontend", "/frontend/"}:
                     serve_file(self, Path(self.server.static_root) / "index.html", CONTENT_TYPES[".html"])
+                    return
+
+                if request_path == "/favicon.ico":
+                    serve_file(self, Path(self.server.static_root) / "favicon.svg", CONTENT_TYPES[".svg"])
                     return
 
                 if request_path.startswith("/frontend/"):

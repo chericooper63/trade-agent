@@ -4,6 +4,7 @@ import os
 import tempfile
 import threading
 import unittest
+from pathlib import Path
 import urllib.request
 from unittest.mock import patch
 
@@ -934,6 +935,7 @@ class TradeAgentTests(unittest.TestCase):
         self.assertIn("generated_by", payload)
         self.assertEqual(server.api_route(), "/api/dashboard")
         self.assertTrue(server.static_index_exists())
+        self.assertTrue((Path(server.static_root) / "favicon.svg").is_file())
         self.assertTrue(server.static_root.endswith("frontend"))
 
     def test_dashboard_health_endpoint_reports_state_store_readiness(self):
