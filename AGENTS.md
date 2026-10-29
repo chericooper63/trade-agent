@@ -37,7 +37,9 @@ stdlib `http.server` in `trade_agent/server.py` — no JS build step.
 ## Server startup
 
 `trade_agent/startup.py` holds the timestamped startup logger and `retry_call` (bounded retries
-with a total time budget). `python -m trade_agent.server` accepts `--log-level`,
+with a total time budget). `log_orchestrator_readiness` logs per-component
+status (agent config, storage probe, team size, monitoring store, overall mode)
+during startup so operators can see which sub-systems came up. `python -m trade_agent.server` accepts `--log-level`,
 `--startup-timeout`, `--bind-attempts`, `--storage-attempts`, `--request-timeout`, each with a
 `TRADE_AGENT_*` environment default. Startup steps are logged individually (state store, socket
 bind, ready/uptime); SIGINT and SIGTERM shut the server down cleanly. There is no database, so
@@ -50,7 +52,7 @@ the "database" retry applies to the JSON run store (`RunStorage`); its `probe()`
 docker compose -f docker-compose.base44.yml exec -T dashboard python -m pytest -q
 ```
 
-All 66 tests pass. The demo `MarketDataProvider` now emits a compounding uptrend (constant 0.5%
+All 70 tests pass. The demo `MarketDataProvider` now emits a compounding uptrend (constant 0.5%
 per-bar return) so the default cycle produces a tradeable BUY signal, a profitable backtest, and a
 filled paper trade end to end; `LearningAgent.review_cycle` also persists each learning entry to
 the run history so the learning loop is durable across restarts.

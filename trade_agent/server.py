@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .api import DashboardAPI
-from .startup import StartupError, configure_logging, retry_call
+from .startup import StartupError, configure_logging, log_orchestrator_readiness, retry_call
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -308,6 +308,7 @@ def main(argv: list[str] | None = None) -> int:
             attempts=args.storage_attempts,
             timeout=args.startup_timeout,
         )
+        log_orchestrator_readiness(server, logger=logger)
         probe = server.state_store_probe()
         logger.info(
             "State store ready at %s (%s persisted run(s))",

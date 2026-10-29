@@ -32,6 +32,54 @@ def configure_logging(level: str = "INFO") -> logging.Logger:
     return logger
 
 
+def log_orchestrator_readiness(server, logger: logging.Logger) -> None:
+    """Log clear, per-component status updates for orchestrator readiness.
+
+    Called during dashboard startup after the orchestrator is initialised so
+    operators can see exactly which sub-systems came up and in what mode.
+    """
+    orchestrator = server.api.orchestrator
+    config = orchestrator.agent.config
+
+    logger.info(
+        "Orchestrator agent initialised (symbol=%s, mode=%s, paper_only=%s, "
+        "equity=%s, proposal_capital=%s)",
+        config.symbol,
+        config.mode,
+        config.paper_only,
+        config.account_equity,
+        config.proposal_capital,
+    )
+
+    probe = orchestrator.storage.probe()
+    storage_state = "ready" if probe.get("ready") else "degraded"
+    logger.info(
+        "Orchestrator storage %s — directory=%s, persisted_runs=%s, writable=%s",
+        storage_state,
+        probe.get("directory"),
+        probe.get("history_entries", 0),
+        probe.get("writable"),
+    )
+
+    agent_count = len(orchestrator.team.profiles)
+    logger.info(
+        "Orchestrator team assembled (%d specialist agents online)",
+        agent_count,
+    )
+
+    logger.info(
+        "Orchestrator monitoring ready — audit store=%s",
+        type(orchestrator.monitor.storage).__name__,
+    )
+
+    logger.info(
+        "Orchestrator ready for dashboard (mode=%s, allow_live=%s, kill_switch=%s)",
+        config.mode,
+        config.allow_live,
+        getattr(config, "kill_switch", False),
+    )
+
+
 def retry_call(
     operation: Callable[[], Any],
     *,
