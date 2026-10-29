@@ -66,8 +66,78 @@ class PaperBrokerAdapter(BrokerAdapter):
         return result_dict
 
 
+class AlpacaLiveBrokerAdapter(BrokerAdapter):
+    """Call Alpaca's live trading API using credentials held in the environment."""
+
+    def __init__(
+        self,
+        api_key_env: str = "ALPACA_API_KEY",
+        secret_key_env: str = "ALPACA_SECRET_KEY",
+        base_url: str = "https://api.alpaca.markets/v2",
+    ):
+        self.api_key_env = api_key_env
+        self.secret_key_env = secret_key_env
+        self.base_url = base_url.rstrip("/")
+        parsed_url = urlsplit(self.base_url)
+        if parsed_url.scheme != "https" or parsed_url.hostname != "api.alpaca.markets" or parsed_url.path != "/v2":
+            raise BrokerExecutionError("AlpacaLiveBrokerAdapter only permits the HTTPS Alpaca live-trading endpoint.")
+
+    def _credentials(self) -> tuple[str, str]:
+        api_key = os.getenv(self.api_key_env, "").strip()
+        secret_key = os.getenv(self.secret_key_env, "").strip()
+        if not api_key or not secret_key:
+            raise BrokerExecutionError(
+                f"Alpaca live credentials are missing. Set {self.api_key_env} and "
+                f"{self.secret_key_env} outside the repository."
+            )
+        return api_key, secret_key
+
+    def _request(self, path: str, method: str = "GET", payload: dict | None = None) -> dict | list:
+        api_key, secret_key = self._credentials()
+        body = json.dumps(payload).encode("utf-8") if payload is not None else None
+        request = Request(
+            f"{self.base_url}/{path.lstrip('/')}",
+            data=body,
+            method=method,
+            headers={
+                "APCA-API-KEY-ID": api_key,
+                "APCA-API-SECRET-KEY": secret_key,
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urlopen(request, timeout=15) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            raise BrokerExecutionError(f"Alpaca live API request failed: {exc}") from exc
+
+    def account(self) -> dict:
+        return self._request("account")
+
+    def positions(self) -> list:
+        result = self._request("positions")
+        if not isinstance(result, list):
+            raise BrokerExecutionError("Alpaca positions response was not a list.")
+        return result
+
+    def place(self, order: Order) -> dict:
+        if not order.symbol or order.side.upper() not in {"BUY", "SELL"} or order.quantity <= 0:
+            raise BrokerExecutionError("Alpaca rejected an invalid order payload.")
+        payload = {
+            "symbol": order.symbol,
+            "qty": str(order.quantity),
+            "side": order.side.lower(),
+            "type": order.order_type,
+            "time_in_force": "day",
+        }
+        result = self._request("orders", method="POST", payload=payload)
+        if not isinstance(result, dict):
+            raise BrokerExecutionError("Alpaca order response was not an object.")
+        return result
+
+
 class LiveBrokerAdapter(BrokerAdapter):
-    """Fail-closed live adapter contract; actual live submission is unavailable."""
+    """Live adapter that submits real orders to Alpaca after policy and risk gates pass."""
 
     def __init__(self, mode: str = "live", policy: ProductionPolicy | None = None):
         if mode != "live":
@@ -93,7 +163,15 @@ class LiveBrokerAdapter(BrokerAdapter):
             account_id=account_id,
             manual_approval=manual_approval,
         )
-        raise BrokerExecutionError("Live broker submission is not implemented; no order was sent.")
+        adapter = AlpacaLiveBrokerAdapter(
+            api_key_env=self.policy.api_key_env,
+            secret_key_env=self.policy.secret_key_env,
+        )
+        result = adapter.place(order)
+        result["route"] = "live_broker"
+        result["mode"] = "live"
+        self.history.append(result)
+        return result
 
 
 class AlpacaPaperBrokerAdapter(BrokerAdapter):

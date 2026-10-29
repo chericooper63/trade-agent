@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .agents import DataAgent, ExecutionSimulationAgent, LearningAgent, PolicyAgent, StrategyAgent
+from .agents import DataAgent, ExecutionSimulationAgent, LearningAgent, LiveExecutionAgent, PolicyAgent, StrategyAgent
 from .config import AgentConfig
 from .data import MarketDataProvider
 from .research import ResearchAgent
@@ -51,7 +51,16 @@ class MultiLayerTradeAgent:
         )
         self.portfolio_manager = PortfolioManager()
         self.broker = SimulatedBroker(symbol=self.symbol)
-        self.execution_agent = ExecutionSimulationAgent(self.broker)
+        if self.config.mode == "live":
+            from .broker import AlpacaLiveBrokerAdapter
+
+            live_broker = AlpacaLiveBrokerAdapter(
+                api_key_env=self.config.api_key_env,
+                secret_key_env=self.config.secret_key_env,
+            )
+            self.execution_agent = LiveExecutionAgent(broker_adapter=live_broker)
+        else:
+            self.execution_agent = ExecutionSimulationAgent(self.broker)
         self.learning_agent = LearningAgent()
 
     def run(self) -> dict:

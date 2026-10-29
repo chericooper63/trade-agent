@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from .agent import MultiLayerTradeAgent
+from .agents import ExecutionSimulationAgent, LiveExecutionAgent, PolicyAgent
+from .broker import AlpacaLiveBrokerAdapter
 from .config import AgentConfig
 from .env import EnvironmentPolicy
 from .frontend import FrontendAdapter
@@ -48,18 +50,53 @@ class DashboardAPI:
                 raise ValueError("Live mode requires an explicit TRADE_AGENT_ACCOUNT_ID.")
             if not manual_approval:
                 raise ValueError("Live mode requires manual approval to remain enabled.")
-            raise ValueError("Live dashboard execution is unavailable; no order was sent.")
         self.settings = {
             "mode": mode,
             "require_manual_approval": manual_approval,
             "kill_switch": kill_switch,
         }
         self.orchestrator.agent.config.kill_switch = kill_switch
+        if mode == "live":
+            self.orchestrator.agent.config.mode = "live"
+            self.orchestrator.agent.config.paper_only = False
+            self.orchestrator.agent.policy_agent = PolicyAgent(
+                mode="live",
+                allow_live=True,
+                require_manual_approval=manual_approval,
+                broker=self.orchestrator.agent.config.broker,
+                account_id=self.orchestrator.agent.config.account_id,
+                api_key_env=self.orchestrator.agent.config.api_key_env,
+                secret_key_env=self.orchestrator.agent.config.secret_key_env,
+                per_account_risk_budget=self.orchestrator.agent.config.per_account_risk_budget,
+            )
+            live_broker = AlpacaLiveBrokerAdapter(
+                api_key_env=self.orchestrator.agent.config.api_key_env,
+                secret_key_env=self.orchestrator.agent.config.secret_key_env,
+            )
+            self.orchestrator.agent.execution_agent = LiveExecutionAgent(broker_adapter=live_broker)
+        else:
+            self.orchestrator.agent.config.mode = "paper"
+            self.orchestrator.agent.config.paper_only = True
+            self.orchestrator.agent.policy_agent = PolicyAgent(
+                mode="paper",
+                allow_live=False,
+                require_manual_approval=manual_approval,
+                broker=self.orchestrator.agent.config.broker,
+                account_id=self.orchestrator.agent.config.account_id,
+                api_key_env=self.orchestrator.agent.config.api_key_env,
+                secret_key_env=self.orchestrator.agent.config.secret_key_env,
+                per_account_risk_budget=self.orchestrator.agent.config.per_account_risk_budget,
+            )
+            from .execution import SimulatedBroker
+
+            self.orchestrator.agent.execution_agent = ExecutionSimulationAgent(
+                SimulatedBroker(symbol=self.orchestrator.agent.symbol)
+            )
         return self.settings.copy()
 
     def run_workflow(self) -> dict:
-        if self.settings["mode"] != "paper":
-            raise ValueError("Dashboard workflows are paper-only; live execution is unavailable.")
+        if self.settings["mode"] not in {"paper", "live"}:
+            raise ValueError(f"Unsupported workflow mode: {self.settings['mode']!r}.")
         if self.settings["kill_switch"]:
             raise ValueError("The kill switch is active; disable it before running a workflow.")
         result = self.orchestrator.run()

@@ -146,8 +146,83 @@ class ExecutionSimulationAgent:
         }
 
 
+class LiveExecutionAgent:
+    """Live execution agent that submits real orders through a broker adapter."""
+
+    def __init__(
+        self,
+        broker_adapter,
+        fee_bps: float = 5.0,
+        slippage_bps: float = 5.0,
+    ):
+        if fee_bps < 0 or slippage_bps < 0:
+            raise ValueError("Execution costs cannot be negative.")
+        self.broker_adapter = broker_adapter
+        self.fee_bps = float(fee_bps)
+        self.slippage_bps = float(slippage_bps)
+        self.allow_live = True
+
+    def execute(
+        self,
+        signal: str,
+        order_size: float,
+        price: float,
+        *,
+        mode: str,
+        policy_gate: dict[str, Any],
+        risk_decision: dict[str, Any],
+        portfolio_decision: dict[str, Any] | None = None,
+        symbol: str | None = None,
+        account_id: str | None = None,
+        run_id: str = "",
+        order_id: str | None = None,
+    ) -> dict[str, Any]:
+        if mode != "live":
+            raise ValueError("LiveExecutionAgent only supports live execution.")
+        if not isinstance(policy_gate, dict) or not policy_gate.get("allowed"):
+            raise ValueError("Live execution requires an allowed policy gate.")
+        if policy_gate.get("approval_status") != "approved":
+            raise ValueError("Live execution requires an approved policy gate.")
+        if not isinstance(risk_decision, dict) or not risk_decision.get("approved"):
+            raise ValueError("Live execution requires an approved risk decision.")
+        if not isinstance(portfolio_decision, dict) or not portfolio_decision.get("approved"):
+            raise ValueError("Live execution requires an approved portfolio decision.")
+        if (
+            signal not in {"BUY", "SELL"}
+            or not math.isfinite(float(order_size))
+            or float(order_size) <= 0.0
+            or not math.isfinite(float(price))
+            or float(price) <= 0.0
+        ):
+            raise ValueError("Live execution requires a valid side, positive quantity, and positive price.")
+
+        from .orders import Order
+
+        order = Order(symbol=symbol or "", side=signal, quantity=int(order_size), price=float(price))
+        broker_result = self.broker_adapter.place(
+            order,
+            account_id=account_id,
+            manual_approval=True,
+            risk_approved=True,
+        )
+        notional = abs(float(order_size) * float(price))
+        return {
+            **broker_result,
+            "order_id": order_id or uuid4().hex,
+            "account_id": account_id or "live",
+            "run_id": run_id,
+            "route": "live_broker",
+            "mode": "live",
+            "simulated": False,
+            "allow_live": True,
+            "approval_status": "approved",
+            "estimated_fee": notional * self.fee_bps / 10_000.0,
+            "estimated_slippage": notional * self.slippage_bps / 10_000.0,
+        }
+
+
 class LearningAgent:
-    """Reviews paper cycles and records execution outcomes as durable evidence."""
+    """Reviews trading cycles and records execution outcomes as durable evidence."""
 
     def __init__(self, journal: LearningJournal | None = None, review_agent: ReviewAgent | None = None):
         self.journal = journal or LearningJournal(storage=RunStorage())
@@ -161,12 +236,13 @@ class LearningAgent:
         decision: dict[str, Any],
         execution: dict[str, Any],
     ) -> dict[str, Any]:
-        if self.allow_live:
-            raise ValueError("LearningAgent is paper-only and cannot enable live execution.")
-        if not isinstance(execution, dict) or execution.get("mode") != "paper":
-            raise ValueError("LearningAgent only reviews paper-mode decision outcomes.")
-        if execution.get("status") == "filled" and not execution.get("simulated"):
-            raise ValueError("A filled learning outcome must be identified as a paper simulation.")
+        if not isinstance(execution, dict):
+            raise ValueError("LearningAgent requires an execution outcome dict.")
+        execution_mode = execution.get("mode", "paper")
+        if execution_mode not in {"paper", "live"}:
+            raise ValueError(f"LearningAgent only reviews paper or live outcomes; got {execution_mode!r}.")
+        if execution.get("status") == "filled" and execution_mode == "paper" and not execution.get("simulated"):
+            raise ValueError("A filled paper outcome must be identified as a paper simulation.")
 
         review = self.review_agent.evaluate(portfolio, risk, decision)
         symbols = list((portfolio.get("positions") or {}).keys())
@@ -185,13 +261,13 @@ class LearningAgent:
                 },
                 {
                     "execution_status": execution.get("status", "unknown"),
-                    "mode": "paper",
+                    "mode": execution_mode,
                     "simulated": bool(execution.get("simulated", False)),
                     "estimated_fee": float(execution.get("estimated_fee", 0.0)),
                     "estimated_slippage": float(execution.get("estimated_slippage", 0.0)),
                     "review_status": review.get("review_status"),
                 },
-                "Paper execution outcome recorded for review; this evidence does not authorize live execution.",
+                f"{execution_mode.capitalize()} execution outcome recorded for review.",
             )
             entries.append(entry)
             if self.journal.storage is not None:
@@ -199,8 +275,8 @@ class LearningAgent:
 
         return {
             **review,
-            "paper_mode": True,
-            "allow_live": False,
+            "paper_mode": execution_mode == "paper",
+            "allow_live": execution_mode == "live",
             "execution_status": execution.get("status", "unknown"),
             "learning_entries": entries,
         }

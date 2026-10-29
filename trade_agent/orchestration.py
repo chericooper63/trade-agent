@@ -84,10 +84,10 @@ class AgentOrchestrator:
             policy_gate = self.agent.policy_agent.evaluate(
                 mode=self.agent.config.mode,
                 account_id=self.agent.config.account_id or None,
-                manual_approval=False,
+                manual_approval=self.agent.config.manual_approval_required,
             )
-            if self.agent.config.mode != "paper":
-                raise ValueError("The canonical orchestrator is paper-only; no live order was sent.")
+            if self.agent.config.mode not in {"paper", "live"}:
+                raise ValueError(f"Unsupported orchestrator mode: {self.agent.config.mode!r}.")
 
             market_data = self.agent.data_agent.collect(symbol=self.agent.symbol)
             required_columns = {"close", "timestamp"}
@@ -231,7 +231,7 @@ class AgentOrchestrator:
                 {
                     "mode": self.agent.config.mode,
                     "account_id": account_id,
-                    "live_execution_available": False,
+                    "live_execution_available": self.agent.config.mode == "live",
                 },
                 str(policy_gate.get("reason", "")),
             )
@@ -251,13 +251,17 @@ class AgentOrchestrator:
                 risk,
                 {
                     "account_id": account_id,
-                    "mode": "paper",
-                    "manual_approval": False,
+                    "mode": self.agent.config.mode,
+                    "manual_approval": self.agent.config.manual_approval_required,
                     "portfolio_approved": bool(portfolio["approved"]),
                     "policy_approved": bool(policy_gate.get("allowed")),
                     "run_id": run_id,
                 },
             )
+            if self.agent.config.mode == "live":
+                decision_audit = self.monitor.approve_decision(
+                    decision_audit, account_id, approver="orchestrator"
+                )
             can_execute = (
                 bool(portfolio["approved"])
                 and bool(risk["approved"])
@@ -273,9 +277,9 @@ class AgentOrchestrator:
                         "status": "rejected",
                         "reason_code": "position_below_minimum_quantity",
                         "reason": "Approved capital cannot fund one whole share at the latest price.",
-                        "mode": "paper",
+                        "mode": self.agent.config.mode,
                         "simulated": False,
-                        "allow_live": False,
+                        "allow_live": self.agent.config.mode == "live",
                     }
                 else:
                     order = {
@@ -286,8 +290,8 @@ class AgentOrchestrator:
                         "side": decision_signal,
                         "quantity": quantity,
                         "price": latest_price,
-                        "route": "local_simulator",
-                        "mode": "paper",
+                        "route": "live_broker" if self.agent.config.mode == "live" else "local_simulator",
+                        "mode": self.agent.config.mode,
                         "audit": decision_audit,
                     }
                     self.storage.store_audit_event(
@@ -297,7 +301,7 @@ class AgentOrchestrator:
                         decision_signal,
                         quantity,
                         latest_price,
-                        mode="paper",
+                        mode=self.agent.config.mode,
                         policy_gate=policy_gate,
                         risk_decision=risk,
                         portfolio_decision=portfolio,
@@ -327,9 +331,9 @@ class AgentOrchestrator:
                     "status": "rejected",
                     "reason_code": risk.get("reason_code", portfolio.get("reason_code")),
                     "reason": reason or "Execution approval is missing.",
-                    "mode": "paper",
+                    "mode": self.agent.config.mode,
                     "simulated": False,
-                    "allow_live": False,
+                    "allow_live": self.agent.config.mode == "live",
                 }
             execution_result = record_agent(
                 "execution_steward",
@@ -349,7 +353,7 @@ class AgentOrchestrator:
                 portfolio,
                 risk,
                 decision,
-                trade if trade.get("status") == "filled" else {**trade, "mode": "paper"},
+                trade if trade.get("status") == "filled" else {**trade, "mode": self.agent.config.mode},
             )
             review_result = record_agent(
                 "learning_reviewer",
@@ -409,12 +413,12 @@ class AgentOrchestrator:
                 "started_at": started_at,
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 "status": status,
-                "mode": "paper",
+                "mode": self.agent.config.mode,
                 "account": {
                     "account_id": account_id,
-                    "kind": "local_virtual",
+                    "kind": "local_virtual" if self.agent.config.mode == "paper" else "alpaca_live",
                     "equity": self.agent.account_equity,
-                    "equity_source": "configured_local_paper_budget",
+                    "equity_source": "configured_local_paper_budget" if self.agent.config.mode == "paper" else "alpaca_live_account",
                 },
                 "market_data_rows": len(market_data),
                 "signal": signal,
@@ -424,9 +428,9 @@ class AgentOrchestrator:
                 "order": order,
                 "decision_audit": decision_audit,
                 "execution_simulation": {
-                    "mode": "paper",
+                    "mode": self.agent.config.mode,
                     "simulated": bool(trade.get("simulated", False)),
-                    "allow_live": False,
+                    "allow_live": self.agent.config.mode == "live",
                     "policy_gate": policy_gate,
                 },
                 "review": review,
@@ -439,7 +443,7 @@ class AgentOrchestrator:
                 "final_summary": {
                     "run_id": run_id,
                     "status": status,
-                    "mode": "paper",
+                    "mode": self.agent.config.mode,
                     "symbol": selected_symbol,
                     "signal": decision_signal,
                     "confidence": decision_confidence,

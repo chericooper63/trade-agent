@@ -15,14 +15,14 @@ class Order:
 class OrderRouter:
     """Very small routing abstraction for a simplified execution path."""
 
-    def route(self, order: Order) -> dict:
+    def route(self, order: Order, *, mode: str = "paper") -> dict:
         return {
             "symbol": order.symbol,
             "side": order.side,
             "quantity": order.quantity,
             "price": order.price,
             "order_type": order.order_type,
-            "route": "paper_broker",
+            "route": "live_broker" if mode == "live" else "paper_broker",
             "status": "queued",
         }
 

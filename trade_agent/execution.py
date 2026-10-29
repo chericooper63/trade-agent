@@ -42,10 +42,12 @@ class ExecutionService:
             raise ValueError("Execution account does not match the audited decision account.")
         if audit.get("approval_status") != "approved" or not audit.get("risk_approved", False):
             raise ValueError("Execution requires a risk-approved decision with completed approval.")
-        if audit.get("mode") != "paper":
-            raise ValueError("ExecutionService is paper-only; live execution is unavailable through this service.")
-        if routed_order.get("route", "paper_broker") != "paper_broker":
-            raise ValueError("ExecutionService only accepts the paper_broker route.")
+        execution_mode = audit.get("mode", "paper")
+        if execution_mode not in {"paper", "live"}:
+            raise ValueError(f"Unsupported execution mode: {execution_mode!r}.")
+        route = routed_order.get("route", "paper_broker")
+        if route not in {"paper_broker", "live_broker"}:
+            raise ValueError(f"ExecutionService only accepts paper_broker or live_broker routes; got {route!r}.")
 
         expected_signal = "BUY" if routed_order.get("side") == "BUY" else "SELL"
         if audit.get("signal") != expected_signal:

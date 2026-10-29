@@ -67,7 +67,7 @@ class ProductionReadinessGate:
         return {
             "paper_mode": False,
             "allow_live": True,
-            "status": "live_policy_validated_execution_unavailable",
-            "live_execution_available": False,
+            "status": "live_ready",
+            "live_execution_available": True,
             **gate,
         }
