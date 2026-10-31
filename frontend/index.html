@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Trade Agent · Paper Operations</title>
+  <link rel="icon" href="/favicon.ico" type="image/svg+xml" />
+  <link rel="stylesheet" href="/frontend/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">TA</span>
+      <div class="brand-copy">
+        <strong>Trade Agent</strong>
+        <span>Paper operations console</span>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span class="pill" id="modePill">paper</span>
+      <span class="pill pill-muted" id="cyclePill">no cycle yet</span>
+      <button type="button" class="btn" id="refreshButton">Refresh</button>
+      <button type="button" class="btn btn-primary" id="runButton">Run paper cycle</button>
+    </div>
+  </header>
+
+  <div class="flag-strip" id="flagStrip" aria-label="Runtime safety flags"></div>
+
+  <main class="layout">
+    <section class="kpi-grid" id="kpiGrid" aria-label="Cycle summary"></section>
+
+    <div class="grid">
+      <article class="panel">
+        <header class="panel-head">
+          <div><span class="panel-label">Decision</span><h2>Latest signal</h2></div>
+          <span class="chip chip-muted" id="decisionChip">none</span>
+        </header>
+        <div id="decisionBody"></div>
+      </article>
+
+      <article class="panel">
+        <header class="panel-head">
+          <div><span class="panel-label">Governance</span><h2>Approval gates</h2></div>
+        </header>
+        <ul class="gate-list" id="gateList"></ul>
+      </article>
+
+      <article class="panel">
+        <header class="panel-head">
+          <div><span class="panel-label">Simulator</span><h2>Order &amp; execution</h2></div>
+          <span class="chip chip-muted">paper only</span>
+        </header>
+        <div id="executionBody"></div>
+      </article>
+
+      <article class="panel">
+        <header class="panel-head">
+          <div><span class="panel-label">Research</span><h2>Scan &amp; backtest evidence</h2></div>
+        </header>
+        <div id="researchBody"></div>
+      </article>
+
+      <article class="panel panel-wide">
+        <header class="panel-head">
+          <div><span class="panel-label">Operations</span><h2>Agent pipeline</h2></div>
+          <span class="chip chip-muted" id="agentCount">0 agents</span>
+        </header>
+        <div class="agent-grid" id="agentGrid"></div>
+      </article>
+
+      <article class="panel panel-wide">
+        <header class="panel-head">
+          <div><span class="panel-label">Audit</span><h2>Run history</h2></div>
+          <span class="chip chip-muted" id="historyCount">0 runs</span>
+        </header>
+        <div class="table-wrap">
+          <table class="table" id="historyTable">
+            <thead>
+              <tr>
+                <th>Completed</th><th>Symbol</th><th>Signal</th><th>Cycle</th>
+                <th>Trade</th><th>Portfolio</th><th>Risk</th><th>Run</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel panel-wide">
+        <header class="panel-head">
+          <div><span class="panel-label">Safety</span><h2>Controls &amp; limits</h2></div>
+        </header>
+        <div id="safetyBody"></div>
+      </article>
+    </div>
+  </main>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+  <script src="/frontend/app.js"></script>
+</body>
+</html>
