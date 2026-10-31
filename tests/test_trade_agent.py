@@ -13,10 +13,23 @@ import pandas as pd
 
 from trade_agent.agent import MultiLayerTradeAgent
 from trade_agent.advisor import AdvisorFilter
-from trade_agent.agents import DataAgent, ExecutionSimulationAgent, LearningAgent, PolicyAgent, StrategyAgent
+from trade_agent.agents import (
+    DataAgent,
+    ExecutionSimulationAgent,
+    LearningAgent,
+    LiveExecutionAgent,
+    PolicyAgent,
+    StrategyAgent,
+)
 from trade_agent.alpha import AlphaAgentRegistry
 from trade_agent.backtest import Backtester
-from trade_agent.broker import AlpacaPaperBrokerAdapter, BrokerAdapter, LiveBrokerAdapter, PaperBrokerAdapter
+from trade_agent.broker import (
+    AlpacaLiveBrokerAdapter,
+    AlpacaPaperBrokerAdapter,
+    BrokerAdapter,
+    LiveBrokerAdapter,
+    PaperBrokerAdapter,
+)
 from trade_agent.cli import main as run_cli, parse_args
 from trade_agent.config import AgentConfig
 from trade_agent.data import (
@@ -173,10 +186,37 @@ class TradeAgentTests(unittest.TestCase):
         self.assertTrue(monitoring.is_approved_for_execution(approved, "personal-primary"))
         self.assertFalse(monitoring.is_approved_for_execution(audit, "other-account"))
 
-        route = OrderRouter().route(Order(symbol="AAPL", side="BUY", quantity=5, price=150.0))
+        # A manually approved live audit is executable through the live broker route.
+        route = OrderRouter().route(Order(symbol="AAPL", side="BUY", quantity=5, price=150.0), mode="live")
         route.update({"account_id": "personal-primary", "audit": approved})
-        with self.assertRaisesRegex(ValueError, "paper-only"):
-            ExecutionService().execute(route)
+        fill = ExecutionService().execute(route)
+        self.assertEqual(fill["status"], "filled")
+        self.assertEqual(fill["route"], "live_broker")
+
+        # An audit that is still pending cannot execute, live or paper.
+        pending_live = monitoring.build_decision_audit(
+            {"signal": "SELL", "confidence": 0.75, "reason": "trend=-1.00"},
+            risk,
+            {"account_id": "personal-primary", "mode": "live", "manual_approval": False},
+        )
+        pending_route = OrderRouter().route(
+            Order(symbol="AAPL", side="SELL", quantity=5, price=150.0), mode="live"
+        )
+        pending_route.update({"account_id": "personal-primary", "audit": pending_live})
+        with self.assertRaisesRegex(ValueError, "completed approval"):
+            ExecutionService().execute(pending_route)
+
+        # Paper audits are approved by the paper policy itself and stay on the paper route.
+        paper_audit = monitoring.build_decision_audit(
+            signal,
+            risk,
+            {"account_id": "local-paper", "mode": "paper", "manual_approval": False},
+        )
+        self.assertEqual(paper_audit["approval_status"], "approved")
+        self.assertEqual(paper_audit["approved_by"], "paper_policy")
+        paper_route = OrderRouter().route(Order(symbol="AAPL", side="BUY", quantity=5, price=120.0))
+        paper_route.update({"account_id": "local-paper", "audit": paper_audit})
+        self.assertEqual(ExecutionService().execute(paper_route)["route"], "paper_broker")
 
     def test_backtester_returns_metrics(self):
         provider = CSVMarketDataProvider()
@@ -780,16 +820,47 @@ class TradeAgentTests(unittest.TestCase):
                         "live", account_id="personal-primary", manual_approval=True
                     )
 
-            adapter = LiveBrokerAdapter(
-                policy=policy,
-            )
-            with self.assertRaisesRegex(ValueError, "not implemented"):
-                adapter.place(
+            class StubLiveAdapter(AlpacaLiveBrokerAdapter):
+                """Live adapter with the HTTP transport replaced by an in-memory stub."""
+
+                def __init__(self):
+                    super().__init__(api_key_env="TEST_API_KEY", secret_key_env="TEST_SECRET_KEY")
+                    self.requests = []
+
+                def _request(self, path, method="GET", payload=None):
+                    self.requests.append({"path": path, "method": method, "payload": payload})
+                    return {"id": "order-1", "symbol": payload["symbol"], "status": "accepted"}
+
+            stub = StubLiveAdapter()
+            adapter = LiveBrokerAdapter(policy=policy)
+            with patch("trade_agent.broker.AlpacaLiveBrokerAdapter", return_value=stub):
+                result = adapter.place(
                     order,
                     account_id="personal-primary",
                     manual_approval=True,
                     risk_approved=True,
                 )
+            self.assertEqual(
+                stub.requests,
+                [
+                    {
+                        "path": "orders",
+                        "method": "POST",
+                        "payload": {
+                            "symbol": "AAPL",
+                            "qty": "5",
+                            "side": "buy",
+                            "type": "market",
+                            "time_in_force": "day",
+                        },
+                    }
+                ],
+            )
+            self.assertEqual(result["route"], "live_broker")
+            self.assertEqual(result["mode"], "live")
+            self.assertEqual(adapter.history[0]["route"], "live_broker")
+            with self.assertRaisesRegex(ValueError, "approved risk decision"):
+                adapter.place(order, account_id="personal-primary", manual_approval=True)
 
     def test_institutional_policy_requires_manual_approval_by_default(self):
         policy = ProductionPolicy(mode="paper", allow_live=True, broker="alpaca", account_id="institutional-primary")
@@ -1037,16 +1108,18 @@ class TradeAgentTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "explicit account_id on each action"):
                 gate.validate(manual_approval=True)
             result = gate.validate(account_id="personal-primary", manual_approval=True)
-        self.assertEqual(result["status"], "live_policy_validated_execution_unavailable")
-        self.assertFalse(result["live_execution_available"])
+        self.assertEqual(result["status"], "live_ready")
+        self.assertTrue(result["live_execution_available"])
+        self.assertEqual(result["account_id"], "personal-primary")
 
-    def test_cli_refuses_live_and_unimplemented_modes(self):
+    def test_cli_requires_account_id_and_credentials_before_live_execution(self):
         with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaisesRegex(ValueError, "Live execution is not implemented"):
+            with self.assertRaisesRegex(ValueError, "explicit account_id"):
                 run_cli(["--mode", "live"])
             with self.assertRaisesRegex(ValueError, "backtest mode is not implemented"):
                 run_cli(["--mode", "backtest"])
 
+        # A fully configured live run fails closed while broker credentials are absent.
         live_environment = {
             "TRADE_AGENT_MODE": "live",
             "TRADE_AGENT_ALLOW_LIVE": "true",
@@ -1054,10 +1127,10 @@ class TradeAgentTests(unittest.TestCase):
             "TRADE_AGENT_REQUIRE_MANUAL_APPROVAL": "true",
         }
         with patch.dict(os.environ, live_environment, clear=True):
-            with self.assertRaisesRegex(ValueError, "Live execution is not implemented"):
+            with self.assertRaisesRegex(ValueError, "broker credentials"):
                 run_cli([])
 
-    def test_dashboard_never_switches_workflow_to_live(self):
+    def test_dashboard_switches_workflow_to_live_only_with_confirmed_settings(self):
         api = DashboardAPI()
         live_environment = {
             "TRADE_AGENT_MODE": "paper",
@@ -1068,10 +1141,20 @@ class TradeAgentTests(unittest.TestCase):
             "ALPACA_SECRET_KEY": "paper-secret",
         }
         with patch.dict(os.environ, live_environment, clear=True):
-            with self.assertRaisesRegex(ValueError, "Live dashboard execution is unavailable"):
-                api.update_settings({"mode": "live", "require_manual_approval": True})
+            settings = api.update_settings({"mode": "live", "require_manual_approval": True})
+            self.assertEqual(settings["mode"], "live")
+            self.assertEqual(api.orchestrator.agent.config.mode, "live")
+            self.assertFalse(api.orchestrator.agent.config.paper_only)
+            self.assertIsInstance(api.orchestrator.agent.execution_agent, LiveExecutionAgent)
+            with self.assertRaisesRegex(ValueError, "manual approval"):
+                api.update_settings({"mode": "live", "require_manual_approval": False})
             with self.assertRaisesRegex(ValueError, "JSON booleans"):
                 api.update_settings({"mode": "paper", "kill_switch": "false"})
+
+        # Live mode is refused outright when the environment does not allow it.
+        with patch.dict(os.environ, {**live_environment, "TRADE_AGENT_ALLOW_LIVE": "false"}, clear=True):
+            with self.assertRaisesRegex(ValueError, "TRADE_AGENT_ALLOW_LIVE"):
+                api.update_settings({"mode": "live", "require_manual_approval": True})
 
     def test_paper_broker_and_live_adapter_fail_closed(self):
         with self.assertRaisesRegex(ValueError, "only supports paper mode"):

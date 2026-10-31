@@ -252,7 +252,12 @@ class AgentOrchestrator:
                 {
                     "account_id": account_id,
                     "mode": self.agent.config.mode,
-                    "manual_approval": self.agent.config.manual_approval_required,
+                    # Paper decisions are executable on the policy gate alone; only live
+                    # actions wait for a human approval recorded on the audit.
+                    "manual_approval": (
+                        self.agent.config.mode == "live"
+                        and self.agent.config.manual_approval_required
+                    ),
                     "portfolio_approved": bool(portfolio["approved"]),
                     "policy_approved": bool(policy_gate.get("allowed")),
                     "run_id": run_id,
@@ -322,14 +327,21 @@ class AgentOrchestrator:
                         }
                     )
             else:
-                reason = (
-                    risk.get("reason")
-                    if not risk.get("approved")
-                    else ", ".join(portfolio.get("rejection_reasons", []))
-                )
+                if not risk.get("approved"):
+                    reason_code = risk.get("reason_code") or "risk_rejected"
+                    reason = risk.get("reason")
+                elif not portfolio.get("approved"):
+                    reason_code = portfolio.get("reason_code") or "portfolio_rejected"
+                    reason = ", ".join(portfolio.get("rejection_reasons", []))
+                elif policy_gate.get("allowed") is not True:
+                    reason_code = "policy_blocked"
+                    reason = policy_gate.get("reason")
+                else:
+                    reason_code = "approval_pending"
+                    reason = "Execution approval is missing."
                 trade = {
                     "status": "rejected",
-                    "reason_code": risk.get("reason_code", portfolio.get("reason_code")),
+                    "reason_code": reason_code,
                     "reason": reason or "Execution approval is missing.",
                     "mode": self.agent.config.mode,
                     "simulated": False,
